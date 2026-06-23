@@ -22,3 +22,6 @@
 
 - 2026-07-20: Finished a small documentation sweep
   Cleaned up a few references and made sure the key links in the docs are easier to spot.
+
+- 2026-06-23: Polished the local proof walkthrough
+  Tightened the wording around proving and verifying the demo flow for a smoother first run.
