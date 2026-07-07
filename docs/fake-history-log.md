@@ -31,3 +31,6 @@
 
 - 2026-07-02: Refined the confidential transfer notes
   Adjusted the explanation around amount-hiding and sealed-note delivery so the behavior feels clearer.
+
+- 2026-07-07: Improved the testnet runbook
+  Expanded the instructions for launching the testnet flow and checking the deployed contracts.
