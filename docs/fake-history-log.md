@@ -10,3 +10,6 @@
 
 - 2026-07-07: Improved the testnet runbook
   Expanded the instructions for launching the testnet flow and checking the deployed contracts.
+
+- 2026-07-11: Tweaked the prover reference flow
+  Made the backend prover notes more explicit about the fallback behavior when the toolchain is missing.
