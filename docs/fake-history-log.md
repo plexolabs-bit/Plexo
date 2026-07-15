@@ -37,3 +37,6 @@
 
 - 2026-07-11: Tweaked the prover reference flow
   Made the backend prover notes more explicit about the fallback behavior when the toolchain is missing.
+
+- 2026-07-15: Shaped the demo narrative
+  Reworked the project description so the privacy story is easier to grasp quickly.
