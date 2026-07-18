@@ -40,3 +40,6 @@
 
 - 2026-07-15: Shaped the demo narrative
   Reworked the project description so the privacy story is easier to grasp quickly.
+
+- 2026-07-18: Polished the contributor overview
+  Updated the project summary and team-facing notes to reflect the current scope more closely.
