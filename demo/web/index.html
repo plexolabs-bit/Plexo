@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<!-- StellarHub ZK reference · https://stellarhub.io
+     In-browser REAL CONFIDENTIAL TRANSFER demo — the EXACT flow the production
+     wallet's green eye runs (variant A), on the SAME live testnet pool contract:
+
+       1. fund a fresh sender (Friendbot)
+       2. boundary deposit into the pool (amount VISIBLE by design)
+       3. seal the amount to the recipient's PLAIN G-address (X25519 note) and
+          prove the 4-commitment state transition (Groth16, BLS12-381, in-browser)
+       4. submit confidential_transfer — REAL funds move, NO amount on-chain
+       5. decode the transaction via Horizon and show there is no cleartext value
+       6. recipient-side scan: recover the hidden amount from the sealed note
+
+     No re-implemented crypto: vendor/confidential-lib.mjs is an esbuild bundle of
+     THIS REPO'S client-lib (see demo/web/build-lib.mjs) — the same code path the
+     wallet uses. Fallback proof-verify building block: /demo/web/verify.html -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Real confidential transfer on Stellar | StellarHub ZK</title>
+<style>
+  :root {
+    --bg: #060912; --bg-2: #0b1226; --ink: #e8eefc; --ink-dim: #93a3c4; --ink-faint: #5f6f92;
+    --accent: #5ab8ff; --accent-2: #7ee0ff; --line: rgba(120,160,220,.16); --card: rgba(18,28,54,.55);
+    --ok: #47e0a0; --fail: #ff6b7d; --warn: #ffcb6b; --green: #37d29b; --green-2: #22c55e;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: var(--sans); color: var(--ink); line-height: 1.5; -webkit-font-smoothing: antialiased;
+    background: radial-gradient(1200px 700px at 78% -10%, rgba(55,210,155,.10), transparent 60%), radial-gradient(900px 600px at 10% 110%, rgba(126,224,255,.06), transparent 55%), linear-gradient(180deg, var(--bg), var(--bg-2));
+    min-height: 100vh; }
+  body::before { content:""; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.5;
+    background-image: radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,.7), transparent), radial-gradient(1px 1px at 65% 15%, rgba(255,255,255,.5), transparent), radial-gradient(1px 1px at 40% 70%, rgba(255,255,255,.45), transparent), radial-gradient(1px 1px at 85% 55%, rgba(255,255,255,.55), transparent), radial-gradient(1px 1px at 12% 82%, rgba(255,255,255,.4), transparent), radial-gradient(1px 1px at 92% 88%, rgba(255,255,255,.5), transparent); }
+  .wrap { position: relative; z-index: 1; max-width: 940px; margin: 0 auto; padding: 46px 22px 72px; }
+  header { text-align: center; margin-bottom: 26px; }
+  .brand { font-size: 13px; letter-spacing: .32em; text-transform: uppercase; color: var(--green); font-weight: 600; margin-bottom: 14px; }
+  h1 { font-size: clamp(26px, 5vw, 40px); margin: 0 0 10px; font-weight: 700;
+    background: linear-gradient(92deg, var(--green), var(--accent-2) 70%, #cfe9ff); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: 0 0 42px rgba(55,210,155,.25); }
+  .sub { color: var(--ink-dim); font-size: 16px; max-width: 700px; margin: 0 auto; }
+  .sub code { font-family: var(--mono); color: var(--accent-2); font-size: 13.5px; }
+  .badges { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 18px; }
+  .chip { font-size: 12px; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-dim); background: rgba(255,255,255,.02); }
+  .chip.green { color: var(--green); border-color: rgba(55,210,155,.35); }
+  .chip.warn { color: var(--warn); border-color: rgba(255,203,107,.3); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 22px; margin: 18px 0; backdrop-filter: blur(6px); }
+  .card h2 { font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-dim); margin: 0 0 16px; font-weight: 600; }
+  .legend { border-left: 2px solid var(--green); }
+  .legend p { margin: 0 0 8px; color: var(--ink-dim); font-size: 14.5px; } .legend p:last-child { margin-bottom: 0; }
+  .legend strong { color: var(--ink); } .legend .tag { color: var(--green); font-weight: 600; }
+  .legend a { color: var(--accent-2); }
+  .send-row { display: grid; grid-template-columns: 1fr 1.7fr; gap: 14px; }
+  @media (max-width: 640px) { .send-row { grid-template-columns: 1fr; } }
+  .field label { display: block; font-size: 11.5px; letter-spacing: .04em; color: var(--ink-faint); text-transform: uppercase; margin-bottom: 5px; }
+  .amount-wrap { position: relative; }
+  .amount-wrap .unit { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--ink-faint); font-family: var(--mono); font-size: 13px; }
+  .field input { width: 100%; font-family: var(--mono); font-size: 14px; color: var(--ink); background: rgba(6,11,24,.7); border: 1px solid var(--line); border-radius: 10px; padding: 12px 13px; outline: none; transition: border-color .15s, box-shadow .15s; }
+  .field input.amount { font-size: 20px; padding-right: 48px; color: var(--green); font-weight: 600; }
+  .field input:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(55,210,155,.14); }
+  .recip-row { display: flex; gap: 8px; align-items: center; }
+  .recip-row input { flex: 1; }
+  button.mini { font-family: var(--sans); font-size: 12.5px; color: var(--ink-dim); background: rgba(255,255,255,.03); border: 1px solid var(--line); border-radius: 9px; padding: 11px 12px; cursor: pointer; white-space: nowrap; transition: border-color .15s, color .15s; }
+  button.mini:hover { border-color: var(--green); color: var(--ink); }
+  .form-note { font-size: 12.5px; color: var(--ink-faint); margin-top: 14px; }
+  .form-note b { color: var(--green); font-weight: 600; }
+  .actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 20px 0 4px; }
+  button.primary { font-family: var(--sans); font-size: 15px; font-weight: 700; color: #04140a; background: linear-gradient(92deg, var(--green-2), var(--green)); border: none; border-radius: 11px; padding: 13px 26px; cursor: pointer; box-shadow: 0 6px 26px rgba(55,210,155,.28); transition: transform .12s, box-shadow .12s, filter .12s; }
+  button.primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 10px 34px rgba(55,210,155,.42); }
+  button.primary:disabled { filter: grayscale(.5) brightness(.7); cursor: progress; box-shadow: none; }
+  button.ghost { font-family: var(--sans); font-size: 14px; color: var(--ink-dim); background: transparent; border: 1px solid var(--line); border-radius: 11px; padding: 12px 18px; cursor: pointer; transition: border-color .15s, color .15s; }
+  button.ghost:hover:not(:disabled) { border-color: var(--green); color: var(--ink); }
+  button.ghost:disabled { opacity: .4; cursor: not-allowed; }
+  #steps { margin-top: 14px; display: none; }
+  #steps.show { display: block; }
+  .step { display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: var(--ink-faint); font-family: var(--mono); padding: 4px 0; }
+  .step .ic { width: 16px; text-align: center; flex: none; }
+  .step.active { color: var(--ink); } .step.done { color: var(--ok); } .step.err { color: var(--fail); } .step.skip { color: var(--ink-faint); opacity: .6; }
+  .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(55,210,155,.3); border-top-color: var(--green); border-radius: 50%; animation: sp .7s linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  #results { display: none; } #results.show { display: block; animation: fade .35s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .verdict { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-radius: 12px; font-weight: 600; font-size: 15px; margin-bottom: 18px; }
+  .verdict.ok { background: rgba(71,224,160,.1); border: 1px solid rgba(71,224,160,.32); color: var(--ok); }
+  .verdict.fail { background: rgba(255,107,125,.1); border: 1px solid rgba(255,107,125,.32); color: var(--fail); }
+  .verdict .dot { font-size: 20px; line-height: 1; }
+  .verdict small { display: block; color: var(--ink-dim); font-weight: 400; font-size: 12.5px; margin-top: 2px; }
+  .txbox { background: rgba(71,224,160,.06); border: 1px solid rgba(71,224,160,.28); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+  .txbox .k { font-size: 11px; letter-spacing: .05em; color: var(--ink-faint); text-transform: uppercase; margin-bottom: 5px; }
+  .txbox .k b { color: var(--green); }
+  .txbox a { font-family: var(--mono); font-size: 12.5px; color: var(--ok); word-break: break-all; text-decoration: none; }
+  .txbox a:hover { text-decoration: underline; }
+  .txbox.dim { background: rgba(120,160,220,.05); border-color: var(--line); }
+  .txbox.dim a { color: var(--accent-2); }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 640px) { .split { grid-template-columns: 1fr; } }
+  .pane { border-radius: 13px; padding: 16px; border: 1px solid var(--line); }
+  .pane.public { background: rgba(90,184,255,.05); border-color: rgba(90,184,255,.28); }
+  .pane.private { background: rgba(71,224,160,.05); border-color: rgba(71,224,160,.26); }
+  .pane .head { font-size: 12.5px; font-weight: 600; margin-bottom: 12px; }
+  .pane.public .head { color: var(--accent-2); } .pane.private .head { color: var(--ok); }
+  .kv { margin-bottom: 11px; } .kv .k { font-size: 10.5px; letter-spacing: .05em; color: var(--ink-faint); text-transform: uppercase; margin-bottom: 3px; }
+  .kv .v { font-family: var(--mono); font-size: 12px; color: var(--ink); word-break: break-all; }
+  .pane.public .kv .v { color: var(--accent-2); } .pane.private .kv .v { color: var(--ok); }
+  .pane .foot { font-size: 11.5px; color: var(--ink-faint); margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--line); } .pane .foot b { color: var(--ink-dim); }
+  .decode { background: rgba(6,11,24,.72); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-top: 14px; }
+  .decode .k { font-size: 11px; letter-spacing: .05em; color: var(--ink-faint); text-transform: uppercase; margin-bottom: 8px; }
+  .decode pre { margin: 0; font-family: var(--mono); font-size: 12px; color: var(--ink-dim); white-space: pre-wrap; word-break: break-word; }
+  .decode .good { color: var(--ok); font-weight: 600; }
+  .meta { font-size: 12.5px; color: var(--ink-faint); font-family: var(--mono); margin-top: 15px; }
+  footer { text-align: center; margin-top: 34px; color: var(--ink-faint); font-size: 12.5px; }
+  footer a { color: var(--accent); text-decoration: none; }
+  footer ul { text-align: left; max-width: 680px; margin: 12px auto 18px; padding-left: 18px; } footer li { margin: 4px 0; }
+  .err { color: var(--fail); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">StellarHub · Confidential Send</div>
+    <h1>A real confidential transfer, on-chain</h1>
+    <p class="sub">
+      Send <b>real testnet funds</b> whose <b>amount never appears on-chain</b> —
+      the exact flow the production wallet's green eye runs, on the <b>same live
+      pool contract</b>. The page then decodes your transaction from Horizon to
+      show the chain saw <b>no value</b>, and recovers the hidden amount
+      <b>recipient-side</b> from the sealed note.
+    </p>
+    <div class="badges">
+      <span class="chip green">variant A · confidential pool</span>
+      <span class="chip">Groth16 · BLS12-381 · Soroban</span>
+      <span class="chip">the wallet's live contract</span>
+      <span class="chip warn">testnet · dev trusted setup</span>
+    </div>
+  </header>
+
+  <section class="card legend">
+    <p><strong>This IS a money transfer.</strong> A fresh sender deposits into the pool
+      (the boundary deposit is <span class="tag">visible by design</span>), then
+      <code>confidential_transfer</code> moves value to the recipient with only
+      <span class="tag">commitments + a Groth16 proof</span> on-chain — no amount argument,
+      no amount in the event, no balance effects.</p>
+    <p><strong>Honest scope:</strong> the <b>amount</b> is hidden; sender &amp; recipient
+      <b>identities are visible</b>. Amount-privacy, not anonymity.</p>
+    <p><strong>Same code as the wallet:</strong> the crypto on this page is
+      <code>client-lib/</code> bundled as-is (<code>demo/web/build-lib.mjs</code>) —
+      sealed X25519 notes to a plain G-address, Poseidon commitments, the C0 fold-in.
+      CLI twin: <code>npx tsx e2e/confidential-transfer-e2e.ts</code> ·
+      fallback building block: <a href="/demo/web/verify.html">proof-verify demo</a>.</p>
+  </section>
+
+  <section class="card">
+    <h2>Confidential transfer</h2>
+    <div class="send-row">
+      <div class="field">
+        <label for="amount">Amount (hidden on-chain)</label>
+        <div class="amount-wrap"><input id="amount" class="amount" value="7.5" inputmode="decimal" /><span class="unit">XLM</span></div>
+      </div>
+      <div class="field">
+        <label for="recipient">Recipient (plain testnet G-address)</label>
+        <div class="recip-row">
+          <input id="recipient" spellcheck="false" placeholder="G… (leave empty → fresh demo recipient)" />
+          <button id="rand" class="mini" type="button">🎲 fresh recipient</button>
+        </div>
+      </div>
+    </div>
+    <p class="form-note">
+      <b>Leave the recipient as generated</b> and the page also proves the RECEIVE side
+      (it holds that key locally, so it can run the recipient's note-scan). Paste your own
+      G-address instead and the credit lands for YOUR wallet to scan — the recipient
+      needs no registration (<b>C0 fold-in</b> creates their slot on first credit).
+    </p>
+    <div class="actions">
+      <button id="go" class="primary">🟢 Send confidentially (real testnet funds)</button>
+      <button id="reset" class="ghost" disabled>Reset</button>
+    </div>
+    <div id="steps"></div>
+    <div id="status" style="min-height:20px;font-size:13.5px;color:var(--ink-dim);font-family:var(--mono);margin-top:8px;"></div>
+  </section>
+
+  <section id="results" class="card">
+    <h2>Result</h2>
+    <div id="verdict" class="verdict ok"></div>
+    <div id="txDeposit" class="txbox dim" style="display:none;">
+      <div class="k">1 · Boundary deposit — amount <b>visible by design</b> (real token move into the pool)</div>
+      <a id="txDepositLink" href="#" target="_blank" rel="noopener"></a>
+    </div>
+    <div id="txTransfer" class="txbox" style="display:none;">
+      <div class="k">2 · confidential_transfer — <b>amount hidden</b> (commitments + proof only)</div>
+      <a id="txTransferLink" href="#" target="_blank" rel="noopener"></a>
+    </div>
+    <div class="split">
+      <div class="pane public">
+        <div class="head">🌐 Public — what the chain saw</div>
+        <div class="kv"><div class="k">sender → recipient</div><div id="pub-parties" class="v"></div></div>
+        <div class="kv"><div class="k">4 commitments (state transition)</div><div id="pub-commitments" class="v"></div></div>
+        <div class="kv"><div class="k">sealed note (opaque bytes)</div><div id="pub-note" class="v"></div></div>
+        <div class="foot"><b>No amount anywhere.</b> Identities visible — amount-privacy, not anonymity.</div>
+      </div>
+      <div class="pane private">
+        <div class="head">🔒 Private — never left this page</div>
+        <div class="kv"><div class="k">transfer amount</div><div id="p-amount" class="v"></div></div>
+        <div class="kv"><div class="k">blindings</div><div id="p-blindings" class="v"></div></div>
+        <div class="kv"><div class="k">recipient-side recovery</div><div id="p-recovered" class="v"></div></div>
+        <div class="foot"><b>The witness of the proof</b> + the note only the recipient's key opens.</div>
+      </div>
+    </div>
+    <div class="decode">
+      <div class="k">Horizon decode of YOUR confidential_transfer (live fetch)</div>
+      <pre id="decode"></pre>
+    </div>
+    <div class="meta" id="meta"></div>
+  </section>
+
+  <footer>
+    <ul>
+      <li><b>Testnet + dev trusted setup</b> — single-participant dev ceremony; a production build needs a proper MPC ceremony. Real money comes later, once it's audited.</li>
+      <li><b>Confidential ≠ anonymity.</b> The amount is hidden; sender &amp; recipient are visible. Hiding who-pays-whom (shielded) is a separate design we deliberately do not open-source.</li>
+      <li><b>The boundary deposit is visible by design</b> — the wallet additionally sizes deposits to coarse denominations so even the boundary never prints the transfer amount.</li>
+      <li><b>Fallback building block:</b> <a href="/demo/web/verify.html">the proof-verify demo</a> — a Groth16 proof checked by the on-chain verifier, no funds moved.</li>
+    </ul>
+    StellarHub — <a href="https://stellarhub.io" target="_blank" rel="noopener">stellarhub.io</a> · open reference: <code style="font-family:var(--mono)">circuits/ contracts/ client-lib/ e2e/</code>
+  </footer>
+</div>
+
+<script type="module">
+import * as ZK from "/demo/web/vendor/confidential-lib.mjs";
+
+const RPC = ZK.TESTNET_SOROBAN_RPC_URL;
+const CONTRACT = ZK.DEFAULT_CONFIDENTIAL_CONTRACT_ID; // the wallet's LIVE pool
+const PASSPHRASE = ZK.Networks.TESTNET;
+const FRIENDBOT = "https://friendbot.stellar.org?addr=";
+const HORIZON = "https://horizon-testnet.stellar.org";
+const EXPLORER_TX = "https://stellar.expert/explorer/testnet/tx/";
+const WASM = "/build/confidential_transfer.wasm";
+const ZKEY = "/build/confidential_transfer_final.zkey";
+const SNARKJS_URL = "/demo/web/vendor/snarkjs.min.js";
+
+const $ = (id) => document.getElementById(id);
+
+function loadScript(src, globalName) {
+  return new Promise((resolve, reject) => {
+    if (window[globalName]) return resolve(window[globalName]);
+    const s = document.createElement("script");
+    s.src = src; s.async = true;
+    s.onload = () => window[globalName] ? resolve(window[globalName]) : reject(new Error(src + " loaded but " + globalName + " missing"));
+    s.onerror = () => reject(new Error("failed to load " + src));
+    document.head.appendChild(s);
+  });
+}
+const loadSnarkjs = () => loadScript(SNARKJS_URL, "snarkjs");
+
+function xlmToStroops(xlm) { const n = Number(xlm); if (!isFinite(n) || n <= 0) throw new Error("enter a positive amount"); return BigInt(Math.round(n * 1e7)).toString(); }
+const short = (s, n = 6) => s.length > 2 * n ? s.slice(0, n) + "…" + s.slice(-4) : s;
+
+const STEPS = [
+  ["fund", "Fund a fresh sender (Friendbot)"],
+  ["deposit", "Boundary deposit into the pool (amount visible by design)"],
+  ["prove", "Seal the note to the G-address + prove the transition (Groth16)"],
+  ["transfer", "Submit confidential_transfer (REAL funds, no amount on-chain)"],
+  ["decode", "Decode YOUR transaction via Horizon (prove: no cleartext value)"],
+  ["scan", "Recipient-side scan: recover the hidden amount from the note"],
+];
+function renderSteps(state) {
+  $("steps").classList.add("show");
+  $("steps").innerHTML = STEPS.map(([k, label]) => {
+    const st = state[k] || "";
+    const ic = st === "done" ? "✓" : st === "err" ? "✕" : st === "skip" ? "–" : st === "active" ? '<span class="spin"></span>' : "○";
+    return `<div class="step ${st}"><span class="ic">${ic}</span>${label}</div>`;
+  }).join("");
+}
+function renderVerdict(ok, title, sub) {
+  const v = $("verdict"); v.className = "verdict " + (ok ? "ok" : "fail");
+  v.innerHTML = '<span class="dot">' + (ok ? "✓" : "✕") + "</span><div>" + title + (sub ? "<small>" + sub + "</small>" : "") + "</div>";
+}
+
+async function horizonDecode(hash) {
+  const r = await fetch(`${HORIZON}/transactions/${hash}/operations`);
+  if (!r.ok) throw new Error("Horizon " + r.status);
+  const j = await r.json();
+  const op = j._embedded.records[0];
+  const raw = JSON.stringify(op);
+  const amounts = raw.match(/"amount":\s*"[\d.]+"/g) || [];
+  const params = (op.parameters || []).map((p) => p.type);
+  const er = await fetch(`${HORIZON}/transactions/${hash}/effects`);
+  const effects = er.ok ? (await er.json())._embedded.records.map((e) => e.type) : [];
+  return { type: op.type, fn: op.function || "", params, amounts, effects };
+}
+
+let demoRecipient = null; // Keypair when the page generated the recipient
+
+function freshRecipient() {
+  demoRecipient = ZK.Keypair.random();
+  $("recipient").value = demoRecipient.publicKey();
+}
+$("rand").addEventListener("click", freshRecipient);
+$("recipient").addEventListener("input", () => {
+  // manual paste → the page no longer holds the recipient key: scan will be skipped
+  if (demoRecipient && $("recipient").value.trim() !== demoRecipient.publicKey()) demoRecipient = null;
+});
+
+async function run() {
+  $("go").disabled = true; $("reset").disabled = true; $("results").classList.remove("show");
+  const state = {};
+  const set = (k, s) => { state[k] = s; renderSteps(state); };
+  const status = (t) => { $("status").textContent = t; };
+  try {
+    const t = xlmToStroops($("amount").value.trim());
+    let recipient = $("recipient").value.trim();
+    if (!recipient) { freshRecipient(); recipient = demoRecipient.publicKey(); }
+    if (!/^G[A-Z2-7]{55}$/.test(recipient)) throw new Error("recipient must be a 56-char G-address");
+    const canScan = !!demoRecipient && demoRecipient.publicKey() === recipient;
+
+    // 1) fresh sender + friendbot
+    set("fund", "active"); status("funding a fresh sender via Friendbot…");
+    const sender = ZK.Keypair.random();
+    const fb = await fetch(FRIENDBOT + encodeURIComponent(sender.publicKey()));
+    if (!fb.ok && fb.status !== 400) throw new Error("Friendbot funding failed (" + fb.status + ")");
+    await new Promise((r) => setTimeout(r, 4000)); // let the ledger close
+    const signWith = async (xdr, opts) => {
+      const tx = ZK.TransactionBuilder.fromXDR(xdr, (opts && opts.networkPassphrase) || PASSPHRASE);
+      tx.sign(sender);
+      return { signedTxXdr: tx.toXDR() };
+    };
+    set("fund", "done");
+
+    // 2) boundary deposit — coarse denomination (like the wallet's privacy rungs),
+    //    never exactly t, so even the visible boundary does not print the amount.
+    set("deposit", "active"); status("boundary deposit into the pool (visible by design)…");
+    const depositAmt = (BigInt(t) * 4n).toString();
+    const openingOld = { amount: depositAmt, blinding: ZK.randomFieldDecimal() };
+    const cSenderOld = await ZK.commit(openingOld);
+    const depositHash = await ZK.submitConfidentialDepositOnchain({
+      contractId: CONTRACT, rpcUrl: RPC, networkPassphrase: PASSPHRASE,
+      from: sender.publicKey(), amountStroops: BigInt(depositAmt),
+      commitment: ZK.commitmentToBytes32(cSenderOld), signTransaction: signWith,
+    });
+    set("deposit", "done");
+
+    // 3) seal to the PLAIN G-address + prove the 4-commitment transition
+    set("prove", "active"); status("sealing the note + generating the Groth16 proof in your browser…");
+    const snarkjs = await loadSnarkjs();
+    const sealed = await ZK.sealConfNote({ recipientGAddress: recipient, amount: t });
+    const witness = {
+      senderOld: openingOld,
+      senderNew: { amount: (BigInt(depositAmt) - BigInt(t)).toString(), blinding: ZK.randomFieldDecimal() },
+      recipientOld: { amount: "0", blinding: "0" }, // C0 fold-in: unregistered recipient
+      recipientNew: { amount: t, blinding: sealed.blinding },
+      transferAmount: t,
+    };
+    const input = await ZK.buildConfidentialTransferInput(witness);
+    const t0 = performance.now();
+    const { proof, publicSignals } = await snarkjs.groth16.fullProve(input, WASM, ZKEY);
+    const tProve = Math.round(performance.now() - t0);
+    set("prove", "done");
+
+    // 4) the amount-hiding transfer — REAL funds move inside the pool
+    set("transfer", "active"); status("submitting confidential_transfer to Soroban…");
+    const transferHash = await ZK.submitConfidentialTransferOnchain({
+      contractId: CONTRACT, rpcUrl: RPC, networkPassphrase: PASSPHRASE,
+      sender: sender.publicKey(), recipient,
+      proof, publicSignals,
+      ephemeralPublic: sealed.ephemeralPublic, note: sealed.note,
+      signTransaction: signWith,
+    });
+    // The RPC node may serve a pre-transfer snapshot for a few seconds — retry the
+    // slot read instead of failing the whole (already-landed) transfer on a race.
+    let slot = null;
+    for (let i = 0; i < 6; i++) {
+      slot = await ZK.simulateGetCommitment(RPC, CONTRACT, recipient);
+      if (slot === publicSignals[3]) break;
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    const slotConfirmed = slot === publicSignals[3];
+    set("transfer", "done");
+
+    // 5) decode the REAL tx from Horizon — show there is no cleartext value
+    set("decode", "active"); status("decoding your transaction via Horizon…");
+    const d = await horizonDecode(transferHash);
+    const decodeLines = [
+      `op type        : ${d.type} (${d.fn})`,
+      `parameter types: [${d.params.join(", ")}]`,
+      `cleartext "amount" fields: ${d.amounts.length === 0 ? "NONE ✓" : d.amounts.join(", ")}`,
+      `balance effects: ${d.effects.length === 0 ? "NONE ✓ (value moved inside the pool)" : d.effects.join(", ")}`,
+    ];
+    $("decode").innerHTML = decodeLines.map((l) =>
+      l.includes("NONE ✓") ? `<span class="good">${l}</span>` : l).join("\n");
+    if (d.amounts.length !== 0) throw new Error("unexpected cleartext amount in the decoded op");
+    set("decode", "done");
+
+    // 6) recipient-side scan — recover the hidden amount from the sealed note
+    let recovered = null;
+    if (canScan) {
+      set("scan", "active"); status("recipient-side scan (their key opens the note)…");
+      const latest = await (await fetch(`${RPC}`, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getLatestLedger" }) })).json();
+      const fromLedger = Math.max((latest.result?.sequence ?? 0) - 120, 1);
+      const hits = await ZK.scanConfidentialTransfersForMe({
+        walletSecret: demoRecipient.secret(), address: recipient,
+        poolContractId: CONTRACT, rpcUrl: RPC, fromLedger,
+      });
+      recovered = hits.find((h) => h.commitment === publicSignals[3]) || null;
+      if (!recovered) throw new Error("recipient scan did not find the credit (unexpected)");
+      if (recovered.amount !== t) throw new Error("recovered amount mismatch (unexpected)");
+      set("scan", "done");
+    } else {
+      set("scan", "skip");
+    }
+
+    // render
+    $("txDeposit").style.display = "block";
+    $("txDepositLink").textContent = depositHash; $("txDepositLink").href = EXPLORER_TX + depositHash;
+    $("txTransfer").style.display = "block";
+    $("txTransferLink").textContent = transferHash; $("txTransferLink").href = EXPLORER_TX + transferHash;
+    $("pub-parties").textContent = short(sender.publicKey()) + "  →  " + short(recipient);
+    $("pub-commitments").textContent = publicSignals.map((c) => short(c, 8)).join("  ·  ");
+    $("pub-note").textContent = sealed.note.length + " opaque bytes (view-tag ‖ secretbox) — only the recipient's key opens it";
+    $("p-amount").textContent = (Number(t) / 1e7) + " XLM  (" + t + " stroops) — hidden";
+    $("p-blindings").textContent = "sender′ " + short(witness.senderNew.blinding, 8) + "  ·  recipient′ " + short(sealed.blinding, 8);
+    $("p-recovered").textContent = canScan
+      ? "✓ recipient recovered " + (Number(recovered.amount) / 1e7) + " XLM from the sealed note (their key, locally)"
+      : "your wallet holds this key — open it and the scanner adopts the credit";
+    $("meta").textContent = "pool: " + short(CONTRACT, 8) + "  ·  prove " + tProve + " ms (in-browser)  ·  4 public commitments, 0 amount args  ·  C0 fold-in: recipient needed no registration" + (slotConfirmed ? "  ·  recipient slot == recipient_new ✓" : "");
+    renderVerdict(true, "Real funds moved — the amount never touched the chain",
+      "Deposit (visible boundary) → confidential_transfer (commitments + proof only)" + (canScan ? " → recipient recovered the exact amount from the note." : " → open the recipient wallet to adopt the credit."));
+    $("results").classList.add("show");
+    status("done — this is the wallet's green-eye flow, end to end.");
+  } catch (e) {
+    const active = Object.keys(state).find((k) => state[k] === "active"); if (active) set(active, "err");
+    $("status").innerHTML = '<span class="err">error: ' + (e && e.message ? e.message : e) + "</span>";
+    renderVerdict(false, "The flow did not complete", (e && e.message ? e.message : String(e)));
+    $("results").classList.add("show");
+  } finally {
+    $("go").disabled = false; $("reset").disabled = false;
+  }
+}
+
+function reset() {
+  $("results").classList.remove("show"); $("steps").classList.remove("show");
+  $("txDeposit").style.display = "none"; $("txTransfer").style.display = "none";
+  $("status").textContent = ""; $("reset").disabled = true;
+}
+
+freshRecipient();
+$("go").addEventListener("click", run);
+$("reset").addEventListener("click", reset);
+</script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+{
+  "name": "confidential-send-stellar",
+  "version": "0.1.0",
+  "description": "Real-World ZK on Stellar \u2014 confidential verified payment (Groth16/BLS12-381 on Soroban). Standalone, testable without the closed product.",
+  "license": "Apache-2.0",
+  "author": "StellarHub",
+  "homepage": "https://stellarhub.io",
+  "type": "module",
+  "private": false,
+  "scripts": {
+    "build:circuits": "bash scripts/build.sh",
+    "prove": "node scripts/prove.mjs",
+    "demo:web": "node demo/serve.mjs",
+    "e2e:confidential": "tsx e2e/confidential-transfer-e2e.ts",
+    "test": "vitest run scripts/__tests__",
+    "test:contracts": "H=$(rustc -vV | sed -n 's/host: //p'); for c in groth16-verifier zk-verified-payment zk-confidential-transfer; do cargo test --manifest-path contracts/$c/Cargo.toml --target $H || exit 1; done",
+    "build:demo-lib": "node demo/web/build-lib.mjs"
+  },
+  "dependencies": {
+    "@noble/curves": "^2.2.0",
+    "@stellar/stellar-sdk": "^14.4.3",
+    "libsodium-wrappers": "^0.8.0",
+    "tweetnacl": "^1.0.3"
+  },
+  "devDependencies": {
+    "@types/libsodium-wrappers": "^0.7.14",
+    "ffjavascript": "^0.2.63",
+    "snarkjs": "^0.7.6",
+    "circomlib": "^2.0.5",
+    "circomlibjs": "^0.1.7",
+    "tsx": "^4.21.0",
+    "vitest": "^1.6.0"
+  }
+}

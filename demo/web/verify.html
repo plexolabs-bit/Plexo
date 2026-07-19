@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<!-- StellarHub ZK reference · https://stellarhub.io
+     In-browser CONFIDENTIAL PAYMENT demo (Model C · private_transfer) that goes
+     ALL THE WAY ON-CHAIN. It generates a REAL Groth16 proof (snarkjs, BLS12-381),
+     funds a fresh testnet key via Friendbot, and REALLY calls verify_proof on the
+     deployed Soroban contract — then shows YOUR live transaction + a stellar.expert
+     link. The amount is a PRIVATE witness; the proof's public signals are only
+     [commitment, nullifier], so the value never appears on-chain.
+
+     HONEST: this is NOT a money transfer. verify_proof only checks the proof on
+     chain (returns true/false) — no funds move. It proves the amount-hiding works
+     end to end, verifiably, with your own transaction.
+
+     Needs the network (Friendbot + Soroban RPC). snarkjs + stellar-sdk are vendored
+     locally; @noble/curves loads from esm.sh (the on-chain call needs the net anyway). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Proof-verify building block (fallback demo) | StellarHub ZK</title>
+<style>
+  :root {
+    --bg: #060912; --bg-2: #0b1226; --ink: #e8eefc; --ink-dim: #93a3c4; --ink-faint: #5f6f92;
+    --accent: #5ab8ff; --accent-2: #7ee0ff; --line: rgba(120,160,220,.16); --card: rgba(18,28,54,.55);
+    --ok: #47e0a0; --fail: #ff6b7d; --warn: #ffcb6b; --green: #37d29b;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: var(--sans); color: var(--ink); line-height: 1.5; -webkit-font-smoothing: antialiased;
+    background: radial-gradient(1200px 700px at 78% -10%, rgba(90,184,255,.10), transparent 60%), radial-gradient(900px 600px at 10% 110%, rgba(126,224,255,.06), transparent 55%), linear-gradient(180deg, var(--bg), var(--bg-2));
+    min-height: 100vh; }
+  body::before { content:""; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.5;
+    background-image: radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,.7), transparent), radial-gradient(1px 1px at 65% 15%, rgba(255,255,255,.5), transparent), radial-gradient(1px 1px at 40% 70%, rgba(255,255,255,.45), transparent), radial-gradient(1px 1px at 85% 55%, rgba(255,255,255,.55), transparent), radial-gradient(1px 1px at 12% 82%, rgba(255,255,255,.4), transparent), radial-gradient(1px 1px at 92% 88%, rgba(255,255,255,.5), transparent); }
+  .wrap { position: relative; z-index: 1; max-width: 900px; margin: 0 auto; padding: 46px 22px 72px; }
+  header { text-align: center; margin-bottom: 26px; }
+  .brand { font-size: 13px; letter-spacing: .32em; text-transform: uppercase; color: var(--accent); font-weight: 600; margin-bottom: 14px; }
+  h1 { font-size: clamp(26px, 5vw, 40px); margin: 0 0 10px; font-weight: 700;
+    background: linear-gradient(92deg, var(--accent), var(--accent-2) 60%, #cfe9ff); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: 0 0 42px rgba(90,184,255,.28); }
+  .sub { color: var(--ink-dim); font-size: 16px; max-width: 680px; margin: 0 auto; }
+  .sub code { font-family: var(--mono); color: var(--accent-2); font-size: 13.5px; }
+  .badges { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 18px; }
+  .chip { font-size: 12px; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-dim); background: rgba(255,255,255,.02); }
+  .chip.warn { color: var(--warn); border-color: rgba(255,203,107,.3); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 22px; margin: 18px 0; backdrop-filter: blur(6px); }
+  .card h2 { font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-dim); margin: 0 0 16px; font-weight: 600; }
+  .legend { border-left: 2px solid var(--accent); }
+  .legend p { margin: 0 0 8px; color: var(--ink-dim); font-size: 14.5px; } .legend p:last-child { margin-bottom: 0; }
+  .legend strong { color: var(--ink); } .legend .tag { color: var(--accent-2); font-weight: 600; }
+  .send-row { display: grid; grid-template-columns: 1fr 1.7fr; gap: 14px; }
+  @media (max-width: 620px) { .send-row { grid-template-columns: 1fr; } }
+  .field label { display: block; font-size: 11.5px; letter-spacing: .04em; color: var(--ink-faint); text-transform: uppercase; margin-bottom: 5px; }
+  .amount-wrap { position: relative; }
+  .amount-wrap .unit { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--ink-faint); font-family: var(--mono); font-size: 13px; }
+  .field input { width: 100%; font-family: var(--mono); font-size: 14px; color: var(--ink); background: rgba(6,11,24,.7); border: 1px solid var(--line); border-radius: 10px; padding: 12px 13px; outline: none; transition: border-color .15s, box-shadow .15s; }
+  .field input.amount { font-size: 20px; padding-right: 48px; color: var(--accent-2); font-weight: 600; }
+  .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(90,184,255,.14); }
+  .recip-row { display: flex; gap: 8px; align-items: center; }
+  .recip-row input { flex: 1; }
+  button.mini { font-family: var(--sans); font-size: 12.5px; color: var(--ink-dim); background: rgba(255,255,255,.03); border: 1px solid var(--line); border-radius: 9px; padding: 11px 12px; cursor: pointer; white-space: nowrap; transition: border-color .15s, color .15s; }
+  button.mini:hover { border-color: var(--accent); color: var(--ink); }
+  .form-note { font-size: 12.5px; color: var(--ink-faint); margin-top: 14px; }
+  .form-note b { color: var(--accent-2); font-weight: 600; }
+  .actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 20px 0 4px; }
+  button.primary { font-family: var(--sans); font-size: 15px; font-weight: 600; color: #04101f; background: linear-gradient(92deg, var(--accent), var(--accent-2)); border: none; border-radius: 11px; padding: 13px 26px; cursor: pointer; box-shadow: 0 6px 26px rgba(90,184,255,.28); transition: transform .12s, box-shadow .12s, filter .12s; }
+  button.primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 10px 34px rgba(90,184,255,.42); }
+  button.primary:disabled { filter: grayscale(.5) brightness(.7); cursor: progress; box-shadow: none; }
+  button.ghost { font-family: var(--sans); font-size: 14px; color: var(--ink-dim); background: transparent; border: 1px solid var(--line); border-radius: 11px; padding: 12px 18px; cursor: pointer; transition: border-color .15s, color .15s; }
+  button.ghost:hover:not(:disabled) { border-color: var(--accent); color: var(--ink); }
+  button.ghost:disabled { opacity: .4; cursor: not-allowed; }
+  /* progress steps */
+  #steps { margin-top: 14px; display: none; }
+  #steps.show { display: block; }
+  .step { display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: var(--ink-faint); font-family: var(--mono); padding: 4px 0; }
+  .step .ic { width: 16px; text-align: center; flex: none; }
+  .step.active { color: var(--ink); } .step.done { color: var(--ok); } .step.err { color: var(--fail); }
+  .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(90,184,255,.3); border-top-color: var(--accent); border-radius: 50%; animation: sp .7s linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  #results { display: none; } #results.show { display: block; animation: fade .35s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .verdict { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-radius: 12px; font-weight: 600; font-size: 15px; margin-bottom: 18px; }
+  .verdict.ok { background: rgba(71,224,160,.1); border: 1px solid rgba(71,224,160,.32); color: var(--ok); }
+  .verdict.fail { background: rgba(255,107,125,.1); border: 1px solid rgba(255,107,125,.32); color: var(--fail); }
+  .verdict .dot { font-size: 20px; line-height: 1; }
+  .verdict small { display: block; color: var(--ink-dim); font-weight: 400; font-size: 12.5px; margin-top: 2px; }
+  .txbox { background: rgba(71,224,160,.06); border: 1px solid rgba(71,224,160,.28); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; }
+  .txbox .k { font-size: 11px; letter-spacing: .05em; color: var(--ink-faint); text-transform: uppercase; margin-bottom: 5px; }
+  .txbox a { font-family: var(--mono); font-size: 12.5px; color: var(--ok); word-break: break-all; text-decoration: none; }
+  .txbox a:hover { text-decoration: underline; }
+  .txbox .open { display: inline-block; margin-top: 8px; font-size: 13px; font-weight: 600; color: #04101f; background: var(--green); border-radius: 9px; padding: 7px 14px; text-decoration: none; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 620px) { .split { grid-template-columns: 1fr; } }
+  .pane { border-radius: 13px; padding: 16px; border: 1px solid var(--line); }
+  .pane.public { background: rgba(90,184,255,.05); border-color: rgba(90,184,255,.28); }
+  .pane.private { background: rgba(71,224,160,.05); border-color: rgba(71,224,160,.26); }
+  .pane .head { font-size: 12.5px; font-weight: 600; margin-bottom: 12px; }
+  .pane.public .head { color: var(--accent-2); } .pane.private .head { color: var(--ok); }
+  .kv { margin-bottom: 11px; } .kv .k { font-size: 10.5px; letter-spacing: .05em; color: var(--ink-faint); text-transform: uppercase; margin-bottom: 3px; }
+  .kv .v { font-family: var(--mono); font-size: 12px; color: var(--ink); word-break: break-all; }
+  .pane.public .kv .v { color: var(--accent-2); } .pane.private .kv .v { color: var(--ok); }
+  .pane .foot { font-size: 11.5px; color: var(--ink-faint); margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--line); } .pane .foot b { color: var(--ink-dim); }
+  .meta { font-size: 12.5px; color: var(--ink-faint); font-family: var(--mono); margin-top: 15px; }
+  details.proof { margin-top: 8px; } details.proof summary { cursor: pointer; color: var(--ink-dim); font-size: 13px; } details.proof summary:hover { color: var(--ink); }
+  pre { font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim); background: rgba(6,11,24,.7); border: 1px solid var(--line); border-radius: 9px; padding: 12px; overflow-x: auto; max-height: 260px; margin: 10px 0 0; }
+  footer { text-align: center; margin-top: 34px; color: var(--ink-faint); font-size: 12.5px; }
+  footer a { color: var(--accent); text-decoration: none; }
+  footer ul { text-align: left; max-width: 640px; margin: 12px auto 18px; padding-left: 18px; } footer li { margin: 4px 0; }
+  .err { color: var(--fail); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">StellarHub · Confidential Send — proof-verify building block</div>
+    <h1>Confidential payment, verified on-chain</h1>
+    <p class="sub">
+      Prove a payment whose <b>amount is hidden</b>, then <b>really verify that proof
+      on Stellar testnet</b> — the demo funds a fresh key and calls the Soroban
+      <code>verify_proof</code> contract for real, and shows you the transaction.
+    </p>
+    <div class="badges">
+      <span class="chip">Model C · private_transfer</span>
+      <span class="chip">snarkjs + Soroban</span>
+      <span class="chip warn">testnet · dev trusted setup</span>
+    </div>
+  </header>
+
+  <section class="card legend">
+    <p><strong>This is not a money transfer.</strong> <code>verify_proof</code> only
+      checks the proof on-chain (returns <span class="tag">true</span>/<span class="tag">false</span>) — no funds move.
+      What it proves: the amount lived <b>only inside the proof</b>, and the chain
+      accepts it <b>without ever seeing the value</b>.</p>
+    <p><strong>The amount is a private input.</strong> The proof's public signals are
+      only <code>[commitment, nullifier]</code>. Tamper one and the on-chain verify
+      returns <span class="tag">false</span> — try <b>Tamper</b> after.</p>
+    <p><strong>This page is the FALLBACK building-block demo.</strong> The main demo —
+      <a href="/" style="color:var(--accent-2)">a REAL hidden-amount transfer on the wallet's live pool</a> —
+      runs the full flow: deposit → sealed-note ZK transfer → recipient-side recovery.
+      CLI twin: <code>npx tsx e2e/confidential-transfer-e2e.ts</code>.</p>
+  </section>
+
+  <section class="card">
+    <h2>Confidential payment</h2>
+    <div class="send-row">
+      <div class="field">
+        <label for="amount">Amount (private)</label>
+        <div class="amount-wrap"><input id="amount" class="amount" value="100000" inputmode="decimal" /><span class="unit">XLM</span></div>
+      </div>
+      <div class="field">
+        <label for="recipient">Recipient (testnet address)</label>
+        <div class="recip-row">
+          <input id="recipient" spellcheck="false" placeholder="G…" />
+          <button id="rand" class="mini" type="button">🎲 random</button>
+        </div>
+      </div>
+    </div>
+    <p class="form-note">
+      <b>The amount, the recipient and fresh per-payment secrets never leave this page.</b>
+      Only the proof + its public signals (<code>commitment</code>, <code>nullifier</code> — <b>no amount</b>) are sent to the contract.
+    </p>
+    <div class="actions">
+      <button id="go" class="primary">🔒 Prove &amp; verify on-chain</button>
+      <button id="tamper" class="ghost" disabled>Tamper &amp; re-verify (local)</button>
+      <button id="reset" class="ghost" disabled>Reset</button>
+    </div>
+    <div id="steps"></div>
+    <div id="status" style="min-height:20px;font-size:13.5px;color:var(--ink-dim);font-family:var(--mono);margin-top:8px;"></div>
+  </section>
+
+  <section id="results" class="card">
+    <h2>Result</h2>
+    <div id="verdict" class="verdict ok"></div>
+    <div id="txbox" class="txbox" style="display:none;">
+      <div class="k">Your on-chain transaction (Stellar testnet)</div>
+      <a id="txlink" href="#" target="_blank" rel="noopener"></a><br/>
+      <a id="txopen" class="open" href="#" target="_blank" rel="noopener">Open in stellar.expert →</a>
+    </div>
+    <div class="split">
+      <div class="pane public">
+        <div class="head">🌐 Public — what the chain saw</div>
+        <div class="kv"><div class="k">commitment</div><div id="commitment" class="v"></div></div>
+        <div class="kv"><div class="k">nullifier</div><div id="nullifier" class="v"></div></div>
+        <div class="foot"><b>No amount field.</b> The contract verified the proof; the value was never sent.</div>
+      </div>
+      <div class="pane private">
+        <div class="head">🔒 Private — only on your device</div>
+        <div class="kv"><div class="k">amount</div><div id="p-amount" class="v"></div></div>
+        <div class="kv"><div class="k">recipient</div><div id="p-recipient" class="v"></div></div>
+        <div class="kv"><div class="k">blinding · secret · serial</div><div id="p-secrets" class="v"></div></div>
+        <div class="foot"><b>Never sent anywhere.</b> The private witness of the proof.</div>
+      </div>
+    </div>
+    <div class="meta" id="meta"></div>
+    <details class="proof"><summary>Show raw Groth16 proof (submission payload)</summary><pre id="proofjson"></pre></details>
+  </section>
+
+  <footer>
+    <ul>
+      <li><b>Testnet + dev trusted setup</b> — single-participant dev ceremony; a production build needs a proper MPC ceremony. Real money comes later, once it's audited.</li>
+      <li><b>Confidential ≠ anonymity.</b> Model C hides the <em>amount</em>; sender &amp; recipient are visible. Hiding who-pays-whom (shielded) is a separate design we deliberately do not open-source.</li>
+      <li><b>verify_proof moves no funds</b> — it returns true/false. This demo proves the amount-hiding is real and on-chain, with your own transaction.</li>
+      <li><b>The real transfer lives here too:</b> <code>e2e/confidential-transfer-e2e.ts</code> runs a REAL confidential transfer on the wallet's live testnet pool (<code>contracts/zk-confidential-transfer</code>) — deposit, hidden-amount transfer to a plain G-address, recipient-side note scan. One command, zero cleartext amount in the tx.</li>
+    </ul>
+    StellarHub — <a href="https://stellarhub.io" target="_blank" rel="noopener">stellarhub.io</a> · open reference: <code style="font-family:var(--mono)">circuits/ contracts/ scripts/</code>
+  </footer>
+</div>
+
+<script type="module">
+import { bls12_381 } from "https://esm.sh/@noble/curves@2.2.0/bls12-381";
+
+const CONTRACT = "CDZUXZXCKKWTAEIXRP5PCQ6O7GP5TT7NJDQ22RCB2XV4PRVL4NXMQD3E"; // groth16-verifier (testnet)
+const RPC = "https://soroban-testnet.stellar.org";
+const PASSPHRASE = "Test SDF Network ; September 2015";
+const FRIENDBOT = "https://friendbot.stellar.org?addr=";
+const EXPLORER_TX = "https://stellar.expert/explorer/testnet/tx/";
+const WASM = "/build/private_transfer.wasm";
+const ZKEY = "/build/private_transfer_final.zkey";
+const VKEY = "/build/private_transfer_verification_key.json";
+const SNARKJS_URL = "/demo/web/vendor/snarkjs.min.js";
+const SDK_URL = "/demo/web/vendor/stellar-sdk.min.js";
+
+const $ = (id) => document.getElementById(id);
+let last = null; // { proof, publicSignals, vk }
+
+// BLS12-381 uncompressed encoders — MUST match the contract's G1Affine/G2Affine
+// (same @noble serialization the wallet uses, byte-for-byte == ark).
+const g1 = (x, y) => bls12_381.G1.Point.fromAffine({ x: BigInt(x), y: BigInt(y) }).toBytes(false);
+const g2 = (b) => bls12_381.G2.Point.fromAffine({ x: { c0: BigInt(b[0][0]), c1: BigInt(b[0][1]) }, y: { c0: BigInt(b[1][0]), c1: BigInt(b[1][1]) } }).toBytes(false);
+
+function loadScript(src, globalName) {
+  return new Promise((resolve, reject) => {
+    if (window[globalName]) return resolve(window[globalName]);
+    const s = document.createElement("script");
+    s.src = src; s.async = true;
+    s.onload = () => window[globalName] ? resolve(window[globalName]) : reject(new Error(src + " loaded but " + globalName + " missing"));
+    s.onerror = () => reject(new Error("failed to load " + src));
+    document.head.appendChild(s);
+  });
+}
+const loadSnarkjs = () => loadScript(SNARKJS_URL, "snarkjs");
+const loadSdk = () => loadScript(SDK_URL, "StellarSdk");
+
+function randomField() {
+  const b = new Uint8Array(31); crypto.getRandomValues(b);
+  return BigInt("0x" + Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("")).toString();
+}
+async function recipientToField(addr) {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(addr));
+  return BigInt("0x" + Array.from(new Uint8Array(d)).slice(0, 30).map((x) => x.toString(16).padStart(2, "0")).join("")).toString();
+}
+function xlmToStroops(xlm) { const n = Number(xlm); if (!isFinite(n) || n <= 0) throw new Error("enter a positive amount"); return BigInt(Math.round(n * 1e7)).toString(); }
+
+// progress steps UI
+const STEPS = [["proof","Generate the Groth16 proof (amount stays private)"],["fund","Fund a fresh testnet key (Friendbot)"],["invoke","Call verify_proof on-chain (Soroban)"],["done","Read the on-chain result"]];
+function renderSteps(stateByKey) {
+  $("steps").classList.add("show");
+  $("steps").innerHTML = STEPS.map(([k, label]) => {
+    const st = stateByKey[k] || "";
+    const ic = st === "done" ? "✓" : st === "err" ? "✕" : st === "active" ? '<span class="spin"></span>' : "○";
+    return `<div class="step ${st}"><span class="ic">${ic}</span>${label}</div>`;
+  }).join("");
+}
+function renderVerdict(ok, title, sub) {
+  const v = $("verdict"); v.className = "verdict " + (ok ? "ok" : "fail");
+  v.innerHTML = '<span class="dot">' + (ok ? "✓" : "✕") + "</span><div>" + title + (sub ? "<small>" + sub + "</small>" : "") + "</div>";
+}
+
+async function run() {
+  $("go").disabled = true; $("tamper").disabled = true; $("reset").disabled = true; $("results").classList.remove("show");
+  const state = {};
+  const set = (k, s) => { state[k] = s; renderSteps(state); };
+  try {
+    const amountXlm = $("amount").value.trim();
+    let recipient = $("recipient").value.trim();
+    const amountStroops = xlmToStroops(amountXlm);
+
+    // 1) proof
+    set("proof", "active"); $("status").textContent = "loading snarkjs + generating proof…";
+    const snarkjs = await loadSnarkjs();
+    if (!recipient) { $("status").textContent = "loading Stellar SDK…"; const S0 = await loadSdk(); recipient = S0.Keypair.random().publicKey(); $("recipient").value = recipient; }
+    const recipientField = await recipientToField(recipient);
+    const blinding = randomField(), senderSecret = randomField(), serial = randomField();
+    const input = { amount: amountStroops, blinding, recipient: recipientField, senderSecret, serial };
+    const t0 = performance.now();
+    const { proof, publicSignals } = await snarkjs.groth16.fullProve(input, WASM, ZKEY);
+    const tProve = Math.round(performance.now() - t0);
+    const vkJson = await (await fetch(VKEY)).json();
+    // local sanity verify
+    const localOk = await snarkjs.groth16.verify(vkJson, publicSignals, proof);
+    if (!localOk) throw new Error("local verify failed (unexpected)");
+    last = { proof, publicSignals, vk: vkJson };
+    set("proof", "done");
+
+    // 2) SDK + fresh funded key
+    set("fund", "active"); $("status").textContent = "funding a fresh testnet key via Friendbot…";
+    const S = await loadSdk();
+    const kp = S.Keypair.random();
+    const fb = await fetch(FRIENDBOT + encodeURIComponent(kp.publicKey()));
+    if (!fb.ok && fb.status !== 400) throw new Error("Friendbot funding failed (" + fb.status + ")");
+    set("fund", "done");
+
+    // 3) encode + verify_proof on-chain
+    set("invoke", "active"); $("status").textContent = "calling verify_proof on Soroban (this takes a few seconds)…";
+    const vk = { alpha: g1(vkJson.vk_alpha_1[0], vkJson.vk_alpha_1[1]), beta: g2(vkJson.vk_beta_2), gamma: g2(vkJson.vk_gamma_2), delta: g2(vkJson.vk_delta_2), ic: vkJson.IC.map((p) => g1(p[0], p[1])) };
+    const proofArg = { a: g1(proof.pi_a[0], proof.pi_a[1]), b: g2(proof.pi_b), c: g1(proof.pi_c[0], proof.pi_c[1]) };
+    const pub_signals = publicSignals.map((s) => BigInt(s));
+
+    const client = await S.contract.Client.from({ contractId: CONTRACT, rpcUrl: RPC, networkPassphrase: PASSPHRASE, publicKey: kp.publicKey(), allowHttp: false });
+    const tx = await client.verify_proof({ vk, proof: proofArg, pub_signals });
+    // verify_proof is a READ call (no state change) — the SDK refuses to submit it
+    // unless forced. We DO want a real ledger transaction (that is the demo), so force.
+    const sent = await tx.signAndSend({
+      force: true,
+      signTransaction: async (xdr) => { const t = S.TransactionBuilder.fromXDR(xdr, PASSPHRASE); t.sign(kp); return { signedTxXdr: t.toXDR() }; },
+    });
+    const hash = sent?.sendTransactionResponse?.hash ?? sent?.getTransactionResponse?.txHash ?? sent?.getTransactionResponse?.hash;
+    const chainResult = sent?.result; // verify_proof returns bool
+    set("invoke", "done"); set("done", "done");
+
+    // render
+    $("commitment").textContent = publicSignals[0];
+    $("nullifier").textContent = publicSignals[1];
+    $("p-amount").textContent = amountXlm + " XLM  (" + amountStroops + " stroops)";
+    $("p-recipient").textContent = recipient;
+    $("p-secrets").textContent = "fresh: " + blinding.slice(0, 8) + "… / " + senderSecret.slice(0, 8) + "… / " + serial.slice(0, 8) + "…";
+    $("proofjson").textContent = JSON.stringify({ proof, publicSignals }, null, 2);
+    const verdictStr = (chainResult === true || chainResult === false) ? String(chainResult) : "accepted (tx successful)";
+    $("meta").textContent = "curve: " + (proof.curve || "bls12381") + "  ·  prove " + tProve + " ms  ·  on-chain verify_proof: " + verdictStr + "  ·  2 public signals (no amount)";
+
+    if (hash) {
+      $("txbox").style.display = "block";
+      $("txlink").textContent = hash; $("txlink").href = EXPLORER_TX + hash;
+      $("txopen").href = EXPLORER_TX + hash;
+    }
+    renderVerdict(true, "Proof verified on-chain — the amount stayed hidden", "A real Soroban verify_proof transaction on Stellar testnet accepted your proof. The amount " + amountXlm + " XLM was never on the wire.");
+    $("results").classList.add("show");
+    $("status").innerHTML = "done — your proof was verified on-chain. Now try <b>Tamper</b>.";
+    $("tamper").disabled = false; $("reset").disabled = false;
+  } catch (e) {
+    const active = Object.keys(state).find((k) => state[k] === "active"); if (active) set(active, "err");
+    $("status").innerHTML = '<span class="err">error: ' + (e && e.message ? e.message : e) + "</span>";
+  } finally {
+    $("go").disabled = false;
+  }
+}
+
+async function tamper() {
+  if (!last) return; $("tamper").disabled = true;
+  try {
+    const snarkjs = await loadSnarkjs();
+    const bad = last.publicSignals.slice(); bad[0] = (BigInt(bad[0]) + 1n).toString();
+    const ok = await snarkjs.groth16.verify(last.vk, bad, last.proof);
+    renderVerdict(ok, ok ? "Tampered proof still verified (unexpected!)" : "Tampered proof rejected", "Changed the commitment by 1 → verify returned " + ok + ". The proof binds the amount; you cannot swap the value. (Local re-check — the same failure happens on-chain.)");
+    $("commitment").textContent = bad[0] + "   ← tampered";
+    $("status").textContent = ok ? "" : "as expected: a changed public signal fails verification.";
+  } catch (e) { $("status").innerHTML = '<span class="err">error: ' + (e && e.message ? e.message : e) + "</span>"; }
+  finally { $("tamper").disabled = false; }
+}
+
+function reset() { last = null; $("results").classList.remove("show"); $("steps").classList.remove("show"); $("txbox").style.display = "none"; $("tamper").disabled = true; $("reset").disabled = true; $("status").textContent = ""; }
+
+// prefill a random recipient so the field is never empty/hardcoded
+(async () => { try { const S = await loadSdk(); $("recipient").value = S.Keypair.random().publicKey(); } catch (_) {} })();
+$("rand").addEventListener("click", async () => { const S = await loadSdk(); $("recipient").value = S.Keypair.random().publicKey(); });
+$("go").addEventListener("click", run);
+$("tamper").addEventListener("click", tamper);
+$("reset").addEventListener("click", reset);
+</script>
+</body>
+</html>

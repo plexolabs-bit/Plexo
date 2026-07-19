@@ -1,0 +1,62 @@
+[package]
+name = "stellar-zk-confidential-transfer"
+version = "0.1.0"
+edition = "2021"
+publish = false
+rust-version = "1.89.0"
+
+# EXPERIMENTAL testnet PoC — confidential-AMOUNT transfer (Soroban/BLS12-381).
+#
+# The ONLY truthful privacy claim: the transfer AMOUNT lives on-chain solely as a
+# Poseidon balance commitment — never a tx argument, never an event field. A
+# Groth16/BLS12-381 proof (confidential_transfer circuit) enforces value
+# conservation IN ZERO-KNOWLEDGE. Sender + recipient identities ARE visible; the
+# boundary deposit()/withdraw() that move real tokens expose their amounts in the
+# clear; a global observer can often infer amounts in a small pool; the dev
+# trusted setup is single-participant (NOT an MPC ceremony); UNAUDITED; testnet
+# only; NOT a "private payment", NOT "anonymous", NOT mainnet-ready.
+#
+# DESIGN: Poseidon is NOT additively homomorphic, so the contract CANNOT subtract
+# commitments on-chain. Conservation is proven INSIDE the circuit (open all four
+# commitments; check amount_sender_old == amount_sender_new + t AND
+# amount_recipient_new == amount_recipient_old + t for the SAME field element t).
+# confidential_transfer performs NO token::transfer — only an atomic 2-commitment
+# compare-and-swap — so the amount t never appears in any event.
+#
+# Embedded Groth16 verify is the SAME logic as the sibling contracts/groth16-verifier
+# / contracts/zk-verified-payment (a fork of soroban-examples/groth16_verifier). The
+# verifying keys are supplied at initialize() time; the DEV keys live in data/
+# (single-participant setup — NOT for mainnet).
+
+[lib]
+crate-type = ["cdylib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { version = "25.1.0" }
+
+[dev-dependencies]
+soroban-sdk = { version = "25.1.0", features = ["testutils"] }
+ark-bls12-381 = { version = "0.4.0" }
+ark-serialize = { version = "0.4.2" }
+ark-ff = { version = "0.4.2" }
+ark-ec = { version = "0.4.2" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
+
+[profile.release-with-logs]
+inherits = "release"
+debug-assertions = true
+
+# Standalone crate — own workspace root. Mirrors the sibling zk-verified-payment.
+[workspace]

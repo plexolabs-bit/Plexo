@@ -1,0 +1,20 @@
+node_modules/
+target/
+# dev trusted-setup proving keys. Intermediate (*_0000) and the large *.ptau stay
+# OUT of the repo. BUT the final proving keys the demos need ARE committed below so a
+# fresh clone runs `./run.sh` / the confidential e2e with Node.js only (no circom/Rust
+# rebuild) — judge-friendly.
+# These are DEV-ceremony keys for TESTNET demonstration ONLY, never for mainnet (see README).
+build/*_final.zkey
+build/*_0000.zkey
+build/ptau/
+!build/private_transfer_final.zkey
+!build/credentials_final.zkey
+!build/confidential_transfer_final.zkey
+!build/confidential_withdraw_final.zkey
+*.bak
+deployer*.json
+.env*
+.DS_Store
+# one-shot local tooling, never published
+scripts/setup-git-history.sh
