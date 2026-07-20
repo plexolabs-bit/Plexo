@@ -19,3 +19,6 @@
 
 - 2026-07-18: Polished the contributor overview
   Updated the project summary and team-facing notes to reflect the current scope more closely.
+
+- 2026-07-20: Finished a small documentation sweep
+  Cleaned up a few references and made sure the key links in the docs are easier to spot.
