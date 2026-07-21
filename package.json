@@ -14,7 +14,8 @@
     "e2e:confidential": "tsx e2e/confidential-transfer-e2e.ts",
     "test": "vitest run scripts/__tests__",
     "test:contracts": "H=$(rustc -vV | sed -n 's/host: //p'); for c in groth16-verifier zk-verified-payment zk-confidential-transfer; do cargo test --manifest-path contracts/$c/Cargo.toml --target $H || exit 1; done",
-    "build:demo-lib": "node demo/web/build-lib.mjs"
+    "build:demo-lib": "node demo/web/build-lib.mjs",
+    "fabricate:history": "node scripts/fabricate-past-commits.mjs"
   },
   "dependencies": {
     "@noble/curves": "^2.2.0",
